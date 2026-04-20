@@ -46,7 +46,7 @@ function extractImages(item: Yad2Item): string {
 
 export async function scrapeYad2(): Promise<number> {
   const items = (await runActor("swerve/yad2-scraper", {
-    locationQuery: "תל אביב - יפו",
+    city: "תל אביב יפו",
     propertyType: "apartments",
     dealType: "rent",
     maxItems: 200,
