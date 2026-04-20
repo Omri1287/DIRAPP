@@ -50,39 +50,53 @@ export function ScraperPanel() {
 
   const runYad2 = async () => {
     setYad2Status("running");
-    setYad2Msg("");
-    const res = await fetch("/api/scrape/yad2", { method: "POST" });
-    const data = await res.json();
-    if (data.success) {
-      setYad2Status("done");
-      setYad2Msg(`${data.count} listings saved.`);
-      loadStats();
-    } else {
+    setYad2Msg("Started — check the terminal for progress. Stats will refresh automatically.");
+    try {
+      const res = await fetch("/api/scrape/yad2", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setYad2Status("done");
+        setYad2Msg("Scraping in background — listings will appear in a few minutes.");
+        // Poll stats every 30s
+        const interval = setInterval(() => loadStats(), 30000);
+        setTimeout(() => clearInterval(interval), 15 * 60 * 1000);
+      } else {
+        setYad2Status("error");
+        setYad2Msg(data.error ?? "Unknown error");
+      }
+    } catch {
       setYad2Status("error");
-      setYad2Msg(data.error ?? "Unknown error");
+      setYad2Msg("Request failed — check the dev server is running.");
     }
   };
 
   const runFacebook = async () => {
     setFbStatus("running");
-    setFbMsg("");
+    setFbMsg("Started — Facebook scraping takes 10–15 minutes. Stats will refresh automatically.");
     const groupUrls = fbUrls
       .split("\n")
       .map((u) => u.trim())
       .filter(Boolean);
-    const res = await fetch("/api/scrape/facebook", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ groupUrls }),
-    });
-    const data = await res.json();
-    if (data.success) {
-      setFbStatus("done");
-      setFbMsg(`${data.count} listings saved.`);
-      loadStats();
-    } else {
+    try {
+      const res = await fetch("/api/scrape/facebook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupUrls }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setFbStatus("done");
+        setFbMsg("Scraping in background — listings will appear in 10–15 minutes.");
+        // Poll stats every 60s
+        const interval = setInterval(() => loadStats(), 60000);
+        setTimeout(() => clearInterval(interval), 20 * 60 * 1000);
+      } else {
+        setFbStatus("error");
+        setFbMsg(data.error ?? "Unknown error");
+      }
+    } catch {
       setFbStatus("error");
-      setFbMsg(data.error ?? "Unknown error");
+      setFbMsg("Request failed — check the dev server is running.");
     }
   };
 
