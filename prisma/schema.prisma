@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Apartment {
+  id           String    @id @default(cuid())
+  externalId   String?   @unique
+  title        String
+  description  String?
+  price        Int
+  rooms        Float?
+  size         Float?
+  floor        Int?
+  totalFloors  Int?
+  neighborhood String?
+  address      String?
+  city         String    @default("Tel Aviv")
+  lat          Float?
+  lng          Float?
+  furnished    Boolean?
+  parking      Boolean?
+  elevator     Boolean?
+  balcony      Boolean?
+  petsAllowed  Boolean?
+  images       String    @default("[]")
+  source       String
+  sourceUrl    String?
+  contactPhone String?
+  contactName  String?
+  postedAt     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model ScraperConfig {
+  id        String   @id @default(cuid())
+  source    String   @unique
+  config    String
+  updatedAt DateTime @updatedAt
+}

@@ -1,0 +1,32 @@
+import { NextRequest, NextResponse } from "next/server";
+import { scrapeFacebook } from "@/lib/scrapers/facebook";
+import { prisma } from "@/lib/db";
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    let groupUrls: string[] = body.groupUrls ?? [];
+
+    if (!groupUrls.length) {
+      const cfg = await prisma.scraperConfig.findUnique({
+        where: { source: "facebook" },
+      });
+      if (cfg) {
+        groupUrls = (JSON.parse(cfg.config) as { groupUrls: string[] }).groupUrls ?? [];
+      }
+    }
+
+    if (!groupUrls.length) {
+      return NextResponse.json(
+        { success: false, error: "No Facebook group URLs configured" },
+        { status: 400 }
+      );
+    }
+
+    const count = await scrapeFacebook(groupUrls);
+    return NextResponse.json({ success: true, count });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
+  }
+}
