@@ -1,11 +1,6 @@
 import { prisma } from "@/lib/db";
-import { runActor } from "@/lib/apify";
 import { TEL_AVIV_NEIGHBORHOODS } from "@/lib/geocode";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type FbPost = Record<string, any>;
-
-const NEIGHBORHOODS_EN = Object.keys(TEL_AVIV_NEIGHBORHOODS);
 const NEIGHBORHOODS_HE: Record<string, string> = {
   "פלורנטין": "Florentin",
   "נווה צדק": "Neve Tzedek",
@@ -27,44 +22,34 @@ const NEIGHBORHOODS_HE: Record<string, string> = {
 function extractPrice(text: string): number | null {
   const patterns = [
     /(\d{3,6})\s*[₪]/,
-    /(\d{3,6})\s*שח/,
-    /(\d{3,6})\s*ש"ח/,
+    /(\d{3,6})\s*ש["]?ח/,
+    /(\d{3,6})\s*שקל/,
     /שכירות[^0-9]*(\d{3,6})/i,
     /מחיר[^0-9]*(\d{3,6})/i,
   ];
   for (const re of patterns) {
     const m = text.match(re);
-    if (m) {
-      const val = parseInt(m[1], 10);
-      if (val >= 1000 && val <= 50000) return val;
-    }
+    if (m) { const v = parseInt(m[1]); if (v >= 1000 && v <= 50000) return v; }
   }
   return null;
 }
 
 function extractRooms(text: string): number | null {
-  const m =
-    text.match(/(\d(?:[.,]\d)?)\s*חד(?:רים|ר)?/) ??
-    text.match(/(\d(?:[.,]\d)?)\s*rooms?/i);
-  if (!m) return null;
-  return parseFloat(m[1].replace(",", "."));
+  const m = text.match(/(\d(?:[.,]\d)?)\s*חד(?:רים|ר)?/) ?? text.match(/(\d(?:[.,]\d)?)\s*rooms?/i);
+  return m ? parseFloat(m[1].replace(",", ".")) : null;
 }
 
 function extractSize(text: string): number | null {
-  const m =
-    text.match(/(\d{2,4})\s*מ(?:ר|"ר|טר)/) ??
-    text.match(/(\d{2,4})\s*sqm/i) ??
-    text.match(/(\d{2,4})\s*m²/i);
-  if (!m) return null;
-  const val = parseInt(m[1], 10);
-  return val >= 20 && val <= 500 ? val : null;
+  const m = text.match(/(\d{2,4})\s*מ(?:ר|"ר|טר)/);
+  if (m) { const v = parseInt(m[1]); return v >= 20 && v <= 500 ? v : null; }
+  return null;
 }
 
 function extractNeighborhood(text: string): string | null {
   for (const [he, en] of Object.entries(NEIGHBORHOODS_HE)) {
     if (text.includes(he)) return en;
   }
-  for (const en of NEIGHBORHOODS_EN) {
+  for (const en of Object.keys(TEL_AVIV_NEIGHBORHOODS)) {
     if (text.toLowerCase().includes(en.toLowerCase())) return en;
   }
   return null;
@@ -72,76 +57,128 @@ function extractNeighborhood(text: string): string | null {
 
 function extractPhone(text: string): string | null {
   const m = text.match(/0[5-9]\d[-\s]?\d{3}[-\s]?\d{4}/);
-  return m ? m[0].replace(/\s/g, "") : null;
+  return m ? m[0].replace(/[\s-]/g, "") : null;
 }
 
-function buildTitle(
-  rooms: number | null,
-  neighborhood: string | null,
-  price: number | null
-): string {
-  const parts: string[] = [];
-  if (rooms) parts.push(`${rooms} room${rooms !== 1 ? "s" : ""}`);
-  if (neighborhood) parts.push(`in ${neighborhood}`);
-  if (price) parts.push(`- ₪${price.toLocaleString()}/mo`);
-  return parts.length ? parts.join(" ") : "Apartment for rent in Tel Aviv";
+interface ScrapedPost {
+  text: string;
+  postId: string;
+  url: string;
+}
+
+async function scrapeGroupPage(groupUrl: string, maxPosts = 50): Promise<ScrapedPost[]> {
+  const { chromium } = await import("playwright");
+
+  // Convert regular FB URL to mbasic (works without login for public groups)
+  const mbasicUrl = groupUrl
+    .replace("www.facebook.com", "mbasic.facebook.com")
+    .replace("m.facebook.com", "mbasic.facebook.com");
+
+  const browser = await chromium.launch({ headless: true });
+  const posts: ScrapedPost[] = [];
+
+  try {
+    const ctx = await browser.newContext({
+      locale: "he-IL",
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+    });
+    const page = await ctx.newPage();
+    await page.goto(mbasicUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+
+    let currentUrl = mbasicUrl;
+    let pageNum = 0;
+
+    while (posts.length < maxPosts && pageNum < 5) {
+      // Extract post texts from current page
+      const pagePosts = await page.evaluate(() => {
+        const results: { text: string; id: string; url: string }[] = [];
+        // mbasic Facebook post structure
+        const articles = document.querySelectorAll("[data-ft]");
+        articles.forEach((el) => {
+          const textEl = el.querySelector("div[data-ft] div") ?? el;
+          const text = textEl.textContent?.trim() ?? "";
+          if (text.length > 30) {
+            const link = el.querySelector("a[href*='/groups/']");
+            const href = link?.getAttribute("href") ?? "";
+            const idMatch = href.match(/\/(\d+)\?/) ?? href.match(/posts\/(\d+)/);
+            results.push({
+              text,
+              id: idMatch?.[1] ?? Math.random().toString(36).slice(2),
+              url: href ? `https://mbasic.facebook.com${href}` : "",
+            });
+          }
+        });
+        return results;
+      });
+
+      for (const p of pagePosts) {
+        if (!posts.find((x) => x.postId === p.id)) {
+          posts.push({ text: p.text, postId: p.id, url: p.url });
+        }
+      }
+
+      // Try to go to next page
+      const nextLink = await page.$("a[href*='?cursor='], a:has-text('הבא'), a:has-text('More')");
+      if (!nextLink) break;
+
+      const href = await nextLink.getAttribute("href");
+      if (!href || href === currentUrl) break;
+
+      currentUrl = href.startsWith("http") ? href : `https://mbasic.facebook.com${href}`;
+      await page.goto(currentUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+      pageNum++;
+    }
+  } finally {
+    await browser.close();
+  }
+
+  return posts;
 }
 
 export async function scrapeFacebook(groupUrls: string[]): Promise<number> {
-  if (!groupUrls.length) return 0;
-
-  const posts = (await runActor("apify/facebook-groups-scraper", {
-    startUrls: groupUrls.map((url) => ({ url })),
-    maxPosts: 100,
-    maxPostComments: 0,
-  })) as FbPost[];
-
   let saved = 0;
 
-  for (const post of posts) {
-    const text: string = post.text ?? post.message ?? "";
-    if (!text || text.length < 20) continue;
+  for (const groupUrl of groupUrls) {
+    const posts = await scrapeGroupPage(groupUrl, 50);
 
-    const price = extractPrice(text);
-    if (!price) continue;
+    for (const post of posts) {
+      const price = extractPrice(post.text);
+      if (!price) continue;
 
-    const externalId = `fb-${post.postId ?? post.id ?? post.url}`;
-    const rooms = extractRooms(text);
-    const size = extractSize(text);
-    const neighborhood = extractNeighborhood(text);
-    const phone = extractPhone(text);
+      const rooms = extractRooms(post.text);
+      const size = extractSize(post.text);
+      const neighborhood = extractNeighborhood(post.text);
+      const phone = extractPhone(post.text);
+      const coords = neighborhood ? TEL_AVIV_NEIGHBORHOODS[neighborhood] ?? null : null;
 
-    const coords =
-      neighborhood && TEL_AVIV_NEIGHBORHOODS[neighborhood]
-        ? TEL_AVIV_NEIGHBORHOODS[neighborhood]
-        : null;
+      const externalId = `fb-${post.postId}`;
+      const title = [
+        rooms ? `${rooms} חדרים` : null,
+        neighborhood ? `ב${neighborhood}` : "בתל אביב",
+        `- ₪${price.toLocaleString()}`,
+      ].filter(Boolean).join(" ");
 
-    await prisma.apartment.upsert({
-      where: { externalId },
-      create: {
-        externalId,
-        title: buildTitle(rooms, neighborhood, price),
-        description: text.slice(0, 2000),
-        price,
-        rooms,
-        size,
-        neighborhood,
-        lat: coords?.lat ?? null,
-        lng: coords?.lng ?? null,
-        images: JSON.stringify(post.images ?? []),
-        source: "facebook",
-        sourceUrl: post.url ?? post.postUrl ?? null,
-        contactPhone: phone,
-        contactName: post.user?.name ?? post.authorName ?? null,
-        postedAt: post.time ? new Date(post.time) : null,
-      },
-      update: {
-        price,
-        description: text.slice(0, 2000),
-      },
-    });
-
-    saved++;
+      await prisma.apartment.upsert({
+        where: { externalId },
+        create: {
+          externalId,
+          title,
+          description: post.text.slice(0, 2000),
+          price,
+          rooms,
+          size,
+          neighborhood,
+          lat: coords?.lat ?? null,
+          lng: coords?.lng ?? null,
+          source: "facebook",
+          sourceUrl: post.url || null,
+          contactPhone: phone,
+          images: "[]",
+        },
+        update: { price, description: post.text.slice(0, 2000) },
+      });
+      saved++;
+    }
   }
 
   return saved;

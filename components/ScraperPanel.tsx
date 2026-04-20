@@ -80,25 +80,25 @@ export function ScraperPanel() {
   };
 
   const runFacebook = async () => {
-    const posts = fbPosts.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
-    if (!posts.length) {
-      setFbMsg("Paste at least one post first.");
+    const groupUrls = fbPosts.split("\n").map((u) => u.trim()).filter((u) => u.startsWith("http"));
+    if (!groupUrls.length) {
+      setFbMsg("Paste at least one Facebook group URL.");
       return;
     }
     setFbStatus("running");
-    setFbMsg("");
+    setFbMsg("Browser scraping started — takes a few minutes per group.");
     try {
-      const res = await fetch("/api/scrape/manual", {
+      const res = await fetch("/api/scrape/facebook", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ posts }),
+        body: JSON.stringify({ groupUrls }),
       });
       const data = await res.json();
       if (data.success) {
         setFbStatus("done");
-        setFbMsg(`${data.count} listing${data.count !== 1 ? "s" : ""} imported.`);
-        setFbPosts("");
-        loadStats();
+        setFbMsg("Scraping in background — check the Scraper Log below.");
+        const iv = setInterval(() => loadStats(), 30000);
+        setTimeout(() => clearInterval(iv), 15 * 60 * 1000);
       } else {
         setFbStatus("error");
         setFbMsg(data.error ?? "Unknown error");
@@ -147,33 +147,58 @@ export function ScraperPanel() {
         </div>
       </div>
 
-      {/* Facebook manual paste */}
+      {/* Facebook scraper */}
       <div className="rounded-2xl border border-gray-200 p-6 flex flex-col gap-4">
         <div className="flex items-center gap-3">
           <span className="rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-700">Facebook</span>
-          <h3 className="font-semibold text-gray-900">Add Facebook posts manually</h3>
+          <h3 className="font-semibold text-gray-900">Scrape Facebook groups</h3>
         </div>
         <p className="text-sm text-gray-500">
-          Copy apartment posts from Facebook groups and paste them below — one post per block, separated by a blank line.
-          Price, rooms, neighborhood, and phone are extracted automatically from the Hebrew text.
+          Paste public Facebook group URLs (one per line). Uses a real browser to scrape — works without login for public groups.
         </p>
         <textarea
           value={fbPosts}
           onChange={(e) => setFbPosts(e.target.value)}
-          rows={8}
-          placeholder="הדבק כאן את הטקסט של הפוסטים..."
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          dir="rtl"
-          lang="he"
+          rows={4}
+          placeholder={"https://www.facebook.com/groups/...\nhttps://www.facebook.com/groups/..."}
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          dir="ltr"
         />
         <div className="flex items-center gap-3 flex-wrap">
-          <ScrapeButton onClick={runFacebook} status={fbStatus} label="Import Posts" />
+          <ScrapeButton onClick={runFacebook} status={fbStatus} label="Scrape Facebook Now" />
           {fbMsg && (
             <span className={`text-sm ${fbStatus === "error" ? "text-red-600" : "text-emerald-600"}`}>
               {fbMsg}
             </span>
           )}
         </div>
+        <details className="text-sm">
+          <summary className="cursor-pointer text-gray-500 hover:text-gray-700">Or paste posts manually instead</summary>
+          <div className="flex flex-col gap-2 mt-3">
+            <p className="text-xs text-gray-500">Paste post texts directly — one post per block, separated by a blank line.</p>
+            <textarea
+              id="manual-posts"
+              rows={6}
+              placeholder="הדבק כאן את הטקסט של הפוסטים (פוסט אחד לבלוק, שורה ריקה בין פוסטים)..."
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              dir="rtl"
+              lang="he"
+            />
+            <button
+              onClick={async () => {
+                const el = document.getElementById("manual-posts") as HTMLTextAreaElement;
+                const posts = el.value.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+                if (!posts.length) return;
+                const res = await fetch("/api/scrape/manual", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ posts }) });
+                const data = await res.json();
+                if (data.success) { el.value = ""; loadStats(); alert(`${data.count} listings imported.`); }
+              }}
+              className="self-start rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 transition"
+            >
+              Import Posts
+            </button>
+          </div>
+        </details>
       </div>
 
       {/* Live log */}

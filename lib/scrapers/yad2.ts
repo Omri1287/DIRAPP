@@ -41,46 +41,42 @@ function extractImages(item: Yad2Item): string {
   return JSON.stringify(imgs);
 }
 
-async function fetchPage(page: number): Promise<Yad2Item[]> {
-  // Try the newer API endpoint used by the Yad2 app
-  const url = new URL("https://gw.yad2.co.il/realestate/rent");
-  url.searchParams.set("city", "5000"); // Tel Aviv-Yafo
-  url.searchParams.set("propertyGroup", "apartments");
-  url.searchParams.set("page", String(page));
-  url.searchParams.set("pageSize", "20");
+async function fetchPageWithBrowser(page: number): Promise<Yad2Item[]> {
+  // Dynamic import so Playwright is only loaded when actually used
+  const { chromium } = await import("playwright");
 
-  const res = await fetch(url.toString(), {
-    headers: {
-      "User-Agent": "Yad2App/7.0 (iPhone; iOS 17.0; Scale/3.00)",
-      "Accept": "application/json",
-      "Accept-Language": "he-IL",
-      "mobile-app": "true",
-      "app-version": "7.0",
-    },
-  });
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const ctx = await browser.newContext({
+      locale: "he-IL",
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    });
+    const pg = await ctx.newPage();
 
-  if (!res.ok) {
-    const text = await res.text();
-    // Check if we got HTML (bot protection) instead of JSON
-    if (text.includes("<html") || text.includes("<!DOCTYPE")) {
-      throw new Error(`Yad2 blocked request (bot protection). Try again later or use a VPN.`);
-    }
-    throw new Error(`Yad2 API ${res.status}`);
+    // Visit homepage first to get cookies
+    await pg.goto("https://www.yad2.co.il/", { waitUntil: "domcontentloaded", timeout: 30000 });
+
+    // Now fetch the JSON API from within the browser context (has cookies + fingerprint)
+    const apiUrl =
+      `https://gw.yad2.co.il/feed-search-legacy/realestate/rent` +
+      `?city=5000&propertyGroup=apartments&page=${page}&forceLdLoad=true`;
+
+    const result = await pg.evaluate(async (url: string) => {
+      const res = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          "Accept-Language": "he-IL,he;q=0.9",
+        },
+      });
+      return res.text();
+    }, apiUrl);
+
+    const data = JSON.parse(result);
+    return data?.data?.feed?.feed_items ?? data?.feed?.feed_items ?? data?.feed_items ?? [];
+  } finally {
+    await browser.close();
   }
-
-  const text = await res.text();
-  if (text.includes("<html") || text.includes("<!DOCTYPE")) {
-    throw new Error(`Yad2 returned HTML instead of JSON (bot protection active)`);
-  }
-
-  const data = JSON.parse(text);
-  return (
-    data?.data?.feed?.feed_items ??
-    data?.feed?.feed_items ??
-    data?.feed_items ??
-    data?.items ??
-    []
-  );
 }
 
 export async function scrapeYad2(maxItems = 100): Promise<number> {
@@ -88,7 +84,7 @@ export async function scrapeYad2(maxItems = 100): Promise<number> {
   let page = 1;
 
   while (upserted < maxItems) {
-    const items = await fetchPage(page);
+    const items = await fetchPageWithBrowser(page);
     if (!items.length) break;
 
     for (const item of items) {
@@ -107,13 +103,14 @@ export async function scrapeYad2(maxItems = 100): Promise<number> {
 
       let lat: number | null = item.coordinates?.latitude ?? null;
       let lng: number | null = item.coordinates?.longitude ?? null;
-
       if (!lat && neighborhood && TEL_AVIV_NEIGHBORHOODS[neighborhood]) {
         lat = TEL_AVIV_NEIGHBORHOODS[neighborhood].lat;
         lng = TEL_AVIV_NEIGHBORHOODS[neighborhood].lng;
       }
 
-      const title = item.title_1 ?? item.row_1 ??
+      const title =
+        item.title_1 ??
+        item.row_1 ??
         `${item.rooms ?? "?"} חדרים ב${neighborhood ?? "תל אביב"}`;
 
       await prisma.apartment.upsert({
@@ -138,7 +135,6 @@ export async function scrapeYad2(maxItems = 100): Promise<number> {
           images: extractImages(item),
           source: "yad2",
           sourceUrl: item.id ? `https://www.yad2.co.il/item/${item.id}` : null,
-          contactPhone: item.contact_name ? null : null,
           contactName: item.contact_name ?? null,
           postedAt: item.date ? new Date(item.date) : null,
         },
@@ -154,8 +150,7 @@ export async function scrapeYad2(maxItems = 100): Promise<number> {
     }
 
     page++;
-    // Small delay to be polite
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 1000));
   }
 
   return upserted;
