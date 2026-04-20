@@ -17,7 +17,7 @@ interface LogEntry {
 
 export function ScraperPanel() {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [fbUrls, setFbUrls] = useState("");
+  const [fbPosts, setFbPosts] = useState("");
   const [yad2Status, setYad2Status] = useState<"idle" | "running" | "done" | "error">("idle");
   const [fbStatus, setFbStatus] = useState<"idle" | "running" | "done" | "error">("idle");
   const [yad2Msg, setYad2Msg] = useState("");
@@ -37,24 +37,15 @@ export function ScraperPanel() {
     }
   }, []);
 
-  const loadConfig = async () => {
-    const res = await fetch("/api/scrape/config");
-    if (res.ok) {
-      const { groupUrls } = await res.json();
-      setFbUrls((groupUrls as string[]).join("\n"));
-    }
-  };
-
   useEffect(() => {
     loadStats();
-    loadConfig();
     loadLogs();
     const interval = setInterval(() => { loadStats(); loadLogs(); }, 15000);
     return () => clearInterval(interval);
   }, [loadStats, loadLogs]);
 
   const saveConfig = async () => {
-    const groupUrls = fbUrls
+    const groupUrls = fbPosts
       .split("\n")
       .map((u) => u.trim())
       .filter(Boolean);
@@ -89,7 +80,7 @@ export function ScraperPanel() {
   };
 
   const runFacebook = async () => {
-    const posts = fbUrls.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+    const posts = fbPosts.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
     if (!posts.length) {
       setFbMsg("Paste at least one post first.");
       return;
@@ -106,7 +97,7 @@ export function ScraperPanel() {
       if (data.success) {
         setFbStatus("done");
         setFbMsg(`${data.count} listing${data.count !== 1 ? "s" : ""} imported.`);
-        setFbUrls("");
+        setFbPosts("");
         loadStats();
       } else {
         setFbStatus("error");
@@ -167,10 +158,10 @@ export function ScraperPanel() {
           Price, rooms, neighborhood, and phone are extracted automatically from the Hebrew text.
         </p>
         <textarea
-          value={fbUrls}
-          onChange={(e) => setFbUrls(e.target.value)}
+          value={fbPosts}
+          onChange={(e) => setFbPosts(e.target.value)}
           rows={8}
-          placeholder={"דירה להשכרה בפלורנטין\n3 חדרים, 70 מר, קומה 2\nמחיר: 6500 ₪\n050-1234567\n\nדירה יפה בנווה צדק...\n2 חדרים, 55 מר\n5800 ₪"}
+          placeholder="הדבק כאן את הטקסט של הפוסטים..."
           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
           dir="rtl"
           lang="he"

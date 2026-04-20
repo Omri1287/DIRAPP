@@ -42,26 +42,45 @@ function extractImages(item: Yad2Item): string {
 }
 
 async function fetchPage(page: number): Promise<Yad2Item[]> {
-  const url = new URL("https://gw.yad2.co.il/feed-search-legacy/realestate/rent");
+  // Try the newer API endpoint used by the Yad2 app
+  const url = new URL("https://gw.yad2.co.il/realestate/rent");
   url.searchParams.set("city", "5000"); // Tel Aviv-Yafo
   url.searchParams.set("propertyGroup", "apartments");
   url.searchParams.set("page", String(page));
-  url.searchParams.set("forceLdLoad", "true");
+  url.searchParams.set("pageSize", "20");
 
   const res = await fetch(url.toString(), {
     headers: {
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8",
-      "Referer": "https://www.yad2.co.il/",
-      "Origin": "https://www.yad2.co.il",
+      "User-Agent": "Yad2App/7.0 (iPhone; iOS 17.0; Scale/3.00)",
+      "Accept": "application/json",
+      "Accept-Language": "he-IL",
+      "mobile-app": "true",
+      "app-version": "7.0",
     },
   });
 
-  if (!res.ok) throw new Error(`Yad2 API ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const text = await res.text();
+    // Check if we got HTML (bot protection) instead of JSON
+    if (text.includes("<html") || text.includes("<!DOCTYPE")) {
+      throw new Error(`Yad2 blocked request (bot protection). Try again later or use a VPN.`);
+    }
+    throw new Error(`Yad2 API ${res.status}`);
+  }
 
-  const data = await res.json();
-  return data?.data?.feed?.feed_items ?? data?.feed_items ?? [];
+  const text = await res.text();
+  if (text.includes("<html") || text.includes("<!DOCTYPE")) {
+    throw new Error(`Yad2 returned HTML instead of JSON (bot protection active)`);
+  }
+
+  const data = JSON.parse(text);
+  return (
+    data?.data?.feed?.feed_items ??
+    data?.feed?.feed_items ??
+    data?.feed_items ??
+    data?.items ??
+    []
+  );
 }
 
 export async function scrapeYad2(maxItems = 100): Promise<number> {
