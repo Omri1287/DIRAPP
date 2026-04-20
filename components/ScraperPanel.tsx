@@ -1,12 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 interface Stats {
   total: number;
   yad2Count: number;
   facebookCount: number;
   lastScrape: string | null;
+}
+
+interface LogEntry {
+  time: string;
+  source: string;
+  message: string;
 }
 
 export function ScraperPanel() {
@@ -16,11 +22,20 @@ export function ScraperPanel() {
   const [fbStatus, setFbStatus] = useState<"idle" | "running" | "done" | "error">("idle");
   const [yad2Msg, setYad2Msg] = useState("");
   const [fbMsg, setFbMsg] = useState("");
+  const [logs, setLogs] = useState<LogEntry[]>([]);
 
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     const res = await fetch("/api/stats");
     if (res.ok) setStats(await res.json());
-  };
+  }, []);
+
+  const loadLogs = useCallback(async () => {
+    const res = await fetch("/api/scrape/status");
+    if (res.ok) {
+      const data = await res.json();
+      setLogs(data.log ?? []);
+    }
+  }, []);
 
   const loadConfig = async () => {
     const res = await fetch("/api/scrape/config");
@@ -33,7 +48,10 @@ export function ScraperPanel() {
   useEffect(() => {
     loadStats();
     loadConfig();
-  }, []);
+    loadLogs();
+    const interval = setInterval(() => { loadStats(); loadLogs(); }, 15000);
+    return () => clearInterval(interval);
+  }, [loadStats, loadLogs]);
 
   const saveConfig = async () => {
     const groupUrls = fbUrls
@@ -180,6 +198,22 @@ export function ScraperPanel() {
           )}
         </div>
       </div>
+
+      {/* Live log */}
+      {logs.length > 0 && (
+        <div className="rounded-2xl border border-gray-200 p-5 flex flex-col gap-3">
+          <h3 className="font-semibold text-gray-900 text-sm">Scraper Log</h3>
+          <div className="flex flex-col gap-1 font-mono text-xs max-h-48 overflow-y-auto">
+            {logs.map((entry, i) => (
+              <div key={i} className={`flex gap-2 ${entry.message.startsWith("ERROR") ? "text-red-600" : "text-gray-700"}`}>
+                <span className="text-gray-400 shrink-0">{new Date(entry.time).toLocaleTimeString()}</span>
+                <span className="text-blue-600 shrink-0">[{entry.source}]</span>
+                <span>{entry.message}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

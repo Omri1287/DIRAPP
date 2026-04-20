@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scrapeFacebook } from "@/lib/scrapers/facebook";
 import { prisma } from "@/lib/db";
+import { addLog } from "@/app/api/scrape/status/route";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -22,10 +23,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Fire and forget — scraping takes 10+ minutes
+  addLog("facebook", `Scrape started for ${groupUrls.length} group(s)`);
+
   scrapeFacebook(groupUrls)
-    .then((count) => console.log(`[Facebook] scraped ${count} listings`))
-    .catch((err) => console.error("[Facebook] scrape error:", err));
+    .then((count) => {
+      const msg = `Done — ${count} listings saved`;
+      console.log(`[Facebook] ${msg}`);
+      addLog("facebook", msg);
+    })
+    .catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[Facebook] scrape error:", msg);
+      addLog("facebook", `ERROR: ${msg}`);
+    });
 
   return NextResponse.json({ success: true, started: true });
 }

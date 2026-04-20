@@ -49,7 +49,7 @@ export async function scrapeYad2(): Promise<number> {
     city: "תל אביב יפו",
     propertyType: "apartments",
     dealType: "rent",
-    maxItems: 200,
+    maxItems: 50,
   })) as Yad2Item[];
 
   let upserted = 0;
