@@ -11,8 +11,9 @@ export async function runActor(
   actorId: string,
   input: Record<string, unknown>
 ): Promise<unknown[]> {
+  const safeId = actorId.replace("/", "~");
   const runRes = await fetch(
-    `${APIFY_BASE}/acts/${actorId}/runs?token=${API_KEY}`,
+    `${APIFY_BASE}/acts/${safeId}/runs?token=${API_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
