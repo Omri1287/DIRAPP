@@ -89,32 +89,32 @@ export function ScraperPanel() {
   };
 
   const runFacebook = async () => {
+    const posts = fbUrls.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+    if (!posts.length) {
+      setFbMsg("Paste at least one post first.");
+      return;
+    }
     setFbStatus("running");
-    setFbMsg("Started — Facebook scraping takes 10–15 minutes. Stats will refresh automatically.");
-    const groupUrls = fbUrls
-      .split("\n")
-      .map((u) => u.trim())
-      .filter(Boolean);
+    setFbMsg("");
     try {
-      const res = await fetch("/api/scrape/facebook", {
+      const res = await fetch("/api/scrape/manual", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupUrls }),
+        body: JSON.stringify({ posts }),
       });
       const data = await res.json();
       if (data.success) {
         setFbStatus("done");
-        setFbMsg("Scraping in background — listings will appear in 10–15 minutes.");
-        // Poll stats every 60s
-        const interval = setInterval(() => loadStats(), 60000);
-        setTimeout(() => clearInterval(interval), 20 * 60 * 1000);
+        setFbMsg(`${data.count} listing${data.count !== 1 ? "s" : ""} imported.`);
+        setFbUrls("");
+        loadStats();
       } else {
         setFbStatus("error");
         setFbMsg(data.error ?? "Unknown error");
       }
     } catch {
       setFbStatus("error");
-      setFbMsg("Request failed — check the dev server is running.");
+      setFbMsg("Request failed.");
     }
   };
 
@@ -144,15 +144,10 @@ export function ScraperPanel() {
           <h3 className="font-semibold text-gray-900">Scrape Yad2 listings</h3>
         </div>
         <p className="text-sm text-gray-500">
-          Fetches up to 200 rental listings from yad2.co.il in Tel Aviv using Apify.
-          This may take a few minutes.
+          Fetches up to 100 rental listings directly from yad2.co.il — no API key needed. Takes ~30 seconds.
         </p>
         <div className="flex items-center gap-4">
-          <ScrapeButton
-            onClick={runYad2}
-            status={yad2Status}
-            label="Scrape Yad2 Now"
-          />
+          <ScrapeButton onClick={runYad2} status={yad2Status} label="Scrape Yad2 Now" />
           {yad2Msg && (
             <span className={`text-sm ${yad2Status === "error" ? "text-red-600" : "text-emerald-600"}`}>
               {yad2Msg}
@@ -161,36 +156,27 @@ export function ScraperPanel() {
         </div>
       </div>
 
-      {/* Facebook */}
+      {/* Facebook manual paste */}
       <div className="rounded-2xl border border-gray-200 p-6 flex flex-col gap-4">
         <div className="flex items-center gap-3">
           <span className="rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-700">Facebook</span>
-          <h3 className="font-semibold text-gray-900">Scrape Facebook groups</h3>
+          <h3 className="font-semibold text-gray-900">Add Facebook posts manually</h3>
         </div>
         <p className="text-sm text-gray-500">
-          Paste one Facebook group URL per line (public groups only). Posts are parsed
-          for price, rooms, neighborhood, and contact info.
+          Copy apartment posts from Facebook groups and paste them below — one post per block, separated by a blank line.
+          Price, rooms, neighborhood, and phone are extracted automatically from the Hebrew text.
         </p>
         <textarea
           value={fbUrls}
           onChange={(e) => setFbUrls(e.target.value)}
-          rows={5}
-          placeholder={"https://www.facebook.com/groups/...\nhttps://www.facebook.com/groups/..."}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          dir="ltr"
+          rows={8}
+          placeholder={"דירה להשכרה בפלורנטין\n3 חדרים, 70 מר, קומה 2\nמחיר: 6500 ₪\n050-1234567\n\nדירה יפה בנווה צדק...\n2 חדרים, 55 מר\n5800 ₪"}
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          dir="rtl"
+          lang="he"
         />
         <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={saveConfig}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 transition"
-          >
-            Save URLs
-          </button>
-          <ScrapeButton
-            onClick={runFacebook}
-            status={fbStatus}
-            label="Scrape Facebook Now"
-          />
+          <ScrapeButton onClick={runFacebook} status={fbStatus} label="Import Posts" />
           {fbMsg && (
             <span className={`text-sm ${fbStatus === "error" ? "text-red-600" : "text-emerald-600"}`}>
               {fbMsg}

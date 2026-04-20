@@ -3,9 +3,9 @@ import { scrapeYad2 } from "@/lib/scrapers/yad2";
 import { addLog } from "@/app/api/scrape/status/route";
 
 export async function POST() {
-  addLog("yad2", "Scrape started");
+  addLog("yad2", "Scrape started (direct Yad2 API)");
 
-  scrapeYad2()
+  scrapeYad2(100)
     .then((count) => {
       const msg = `Done — ${count} listings saved`;
       console.log(`[Yad2] ${msg}`);
