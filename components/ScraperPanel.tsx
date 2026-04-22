@@ -6,6 +6,7 @@ interface Stats {
   total: number;
   yad2Count: number;
   facebookCount: number;
+  madlanCount: number;
   lastScrape: string | null;
 }
 
@@ -23,8 +24,10 @@ export function ScraperPanel() {
   const [cookieSaved, setCookieSaved] = useState(false);
   const [yad2Status, setYad2Status] = useState<"idle" | "running" | "done" | "error">("idle");
   const [fbStatus, setFbStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [madlanStatus, setMadlanStatus] = useState<"idle" | "running" | "done" | "error">("idle");
   const [yad2Msg, setYad2Msg] = useState("");
   const [fbMsg, setFbMsg] = useState("");
+  const [madlanMsg, setMadlanMsg] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
   const loadStats = useCallback(async () => {
@@ -98,6 +101,27 @@ export function ScraperPanel() {
     }
   };
 
+  const runMadlan = async () => {
+    setMadlanStatus("running");
+    setMadlanMsg("Started — scraping in background.");
+    try {
+      const res = await fetch("/api/scrape/madlan", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setMadlanStatus("done");
+        setMadlanMsg("Scraping in background — listings will appear in a few minutes.");
+        const iv = setInterval(() => loadStats(), 30000);
+        setTimeout(() => clearInterval(iv), 15 * 60 * 1000);
+      } else {
+        setMadlanStatus("error");
+        setMadlanMsg(data.error ?? "Unknown error");
+      }
+    } catch {
+      setMadlanStatus("error");
+      setMadlanMsg("Request failed.");
+    }
+  };
+
   const runFacebook = async () => {
     const groupUrls = fbPosts.split("\n").map((u) => u.trim()).filter((u) => u.startsWith("http"));
     if (!groupUrls.length) {
@@ -132,17 +156,14 @@ export function ScraperPanel() {
     <div className="flex flex-col gap-8">
       {/* Stats */}
       {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           <StatCard label="Total listings" value={stats.total} />
           <StatCard label="From Yad2" value={stats.yad2Count} color="red" />
+          <StatCard label="From Madlan" value={stats.madlanCount} color="green" />
           <StatCard label="From Facebook" value={stats.facebookCount} color="blue" />
           <StatCard
             label="Last scraped"
-            value={
-              stats.lastScrape
-                ? new Date(stats.lastScrape).toLocaleDateString()
-                : "Never"
-            }
+            value={stats.lastScrape ? new Date(stats.lastScrape).toLocaleDateString() : "Never"}
           />
         </div>
       )}
@@ -161,6 +182,25 @@ export function ScraperPanel() {
           {yad2Msg && (
             <span className={`text-sm ${yad2Status === "error" ? "text-red-600" : "text-emerald-600"}`}>
               {yad2Msg}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Madlan */}
+      <div className="rounded-2xl border border-gray-200 p-6 flex flex-col gap-4">
+        <div className="flex items-center gap-3">
+          <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700">Madlan</span>
+          <h3 className="font-semibold text-gray-900">Scrape Madlan listings</h3>
+        </div>
+        <p className="text-sm text-gray-500">
+          Fetches Tel Aviv rental listings from madlan.co.il — no login required. Takes ~1 minute.
+        </p>
+        <div className="flex items-center gap-4">
+          <ScrapeButton onClick={runMadlan} status={madlanStatus} label="Scrape Madlan Now" />
+          {madlanMsg && (
+            <span className={`text-sm ${madlanStatus === "error" ? "text-red-600" : "text-emerald-600"}`}>
+              {madlanMsg}
             </span>
           )}
         </div>
@@ -248,13 +288,15 @@ function StatCard({
 }: {
   label: string;
   value: number | string;
-  color?: "red" | "blue";
+  color?: "red" | "blue" | "green";
 }) {
   const textColor =
     color === "red"
       ? "text-red-600"
       : color === "blue"
       ? "text-blue-600"
+      : color === "green"
+      ? "text-green-600"
       : "text-gray-900";
 
   return (
