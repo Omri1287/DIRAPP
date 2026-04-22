@@ -172,33 +172,6 @@ export function ScraperPanel() {
             </span>
           )}
         </div>
-        <details className="text-sm">
-          <summary className="cursor-pointer text-gray-500 hover:text-gray-700">Or paste posts manually instead</summary>
-          <div className="flex flex-col gap-2 mt-3">
-            <p className="text-xs text-gray-500">Paste post texts directly — one post per block, separated by a blank line.</p>
-            <textarea
-              id="manual-posts"
-              rows={6}
-              placeholder="הדבק כאן את הטקסט של הפוסטים (פוסט אחד לבלוק, שורה ריקה בין פוסטים)..."
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              dir="rtl"
-              lang="he"
-            />
-            <button
-              onClick={async () => {
-                const el = document.getElementById("manual-posts") as HTMLTextAreaElement;
-                const posts = el.value.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
-                if (!posts.length) return;
-                const res = await fetch("/api/scrape/manual", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ posts }) });
-                const data = await res.json();
-                if (data.success) { el.value = ""; loadStats(); alert(`${data.count} listings imported.`); }
-              }}
-              className="self-start rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 transition"
-            >
-              Import Posts
-            </button>
-          </div>
-        </details>
       </div>
 
       {/* Live log */}

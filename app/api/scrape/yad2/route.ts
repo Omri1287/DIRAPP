@@ -3,7 +3,7 @@ import { scrapeYad2 } from "@/lib/scrapers/yad2";
 import { addLog } from "@/app/api/scrape/status/route";
 
 export async function POST() {
-  addLog("yad2", "Scrape started (direct Yad2 API)");
+  addLog("yad2", "Scrape started (Playwright browser)");
 
   scrapeYad2(100)
     .then((count) => {
