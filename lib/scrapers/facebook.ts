@@ -66,10 +66,13 @@ interface ScrapedPost {
   url: string;
 }
 
-async function scrapeGroupPage(groupUrl: string, maxPosts = 50): Promise<ScrapedPost[]> {
+async function scrapeGroupPage(
+  groupUrl: string,
+  maxPosts = 50,
+  log: (msg: string) => void = () => {},
+): Promise<ScrapedPost[]> {
   const { chromium } = await import("playwright");
 
-  // Convert regular FB URL to mbasic (works without login for public groups)
   const mbasicUrl = groupUrl
     .replace("www.facebook.com", "mbasic.facebook.com")
     .replace("m.facebook.com", "mbasic.facebook.com");
@@ -85,31 +88,69 @@ async function scrapeGroupPage(groupUrl: string, maxPosts = 50): Promise<Scraped
     const page = await ctx.newPage();
     await page.goto(mbasicUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
 
+    // Detect login / checkpoint redirect
+    const finalUrl = page.url();
+    const title = await page.title();
+    if (
+      finalUrl.includes("/login") ||
+      finalUrl.includes("/checkpoint") ||
+      title.toLowerCase().includes("log in") ||
+      title === "Facebook"
+    ) {
+      throw new Error(`Facebook requires login for this group (redirected to: ${finalUrl}). Only public groups work without login.`);
+    }
+
+    log(`Page title: "${title}"`);
+
     let currentUrl = mbasicUrl;
     let pageNum = 0;
 
     while (posts.length < maxPosts && pageNum < 5) {
-      // Extract post texts from current page
       const pagePosts = await page.evaluate(() => {
         const results: { text: string; id: string; url: string }[] = [];
-        // mbasic Facebook post structure
-        const articles = document.querySelectorAll("[data-ft]");
+
+        // Try selectors from most to least specific for mbasic Facebook
+        const candidates = [
+          ...Array.from(document.querySelectorAll("[data-ft]")),
+          ...Array.from(document.querySelectorAll(".story_body_container")),
+          ...Array.from(document.querySelectorAll("article")),
+        ];
+        // Deduplicate by element reference
+        const seen = new Set<Element>();
+        const articles = candidates.filter((el) => {
+          if (seen.has(el)) return false;
+          seen.add(el);
+          return true;
+        });
+
         articles.forEach((el) => {
-          const textEl = el.querySelector("div[data-ft] div") ?? el;
-          const text = textEl.textContent?.trim() ?? "";
+          const text = el.textContent?.trim() ?? "";
           if (text.length > 30) {
-            const link = el.querySelector("a[href*='/groups/']");
+            const link =
+              el.querySelector("a[href*='/groups/']") ??
+              el.querySelector("a[href*='/permalink/']") ??
+              el.querySelector("a[href*='story_fbid']");
             const href = link?.getAttribute("href") ?? "";
-            const idMatch = href.match(/\/(\d+)\?/) ?? href.match(/posts\/(\d+)/);
+            const idMatch =
+              href.match(/story_fbid=(\d+)/) ??
+              href.match(/permalink\/(\d+)/) ??
+              href.match(/posts\/(\d+)/) ??
+              href.match(/\/(\d{10,})/);
             results.push({
               text,
               id: idMatch?.[1] ?? Math.random().toString(36).slice(2),
-              url: href ? `https://mbasic.facebook.com${href}` : "",
+              url: href
+                ? href.startsWith("http")
+                  ? href
+                  : `https://mbasic.facebook.com${href}`
+                : "",
             });
           }
         });
         return results;
       });
+
+      log(`Page ${pageNum + 1}: found ${pagePosts.length} raw elements`);
 
       for (const p of pagePosts) {
         if (!posts.find((x) => x.postId === p.id)) {
@@ -117,8 +158,9 @@ async function scrapeGroupPage(groupUrl: string, maxPosts = 50): Promise<Scraped
         }
       }
 
-      // Try to go to next page
-      const nextLink = await page.$("a[href*='?cursor='], a:has-text('הבא'), a:has-text('More')");
+      const nextLink = await page.$(
+        "a[href*='?cursor='], a:has-text('הבא'), a:has-text('More'), a:has-text('See More Posts')",
+      );
       if (!nextLink) break;
 
       const href = await nextLink.getAttribute("href");
@@ -135,11 +177,15 @@ async function scrapeGroupPage(groupUrl: string, maxPosts = 50): Promise<Scraped
   return posts;
 }
 
-export async function scrapeFacebook(groupUrls: string[]): Promise<number> {
+export async function scrapeFacebook(
+  groupUrls: string[],
+  log: (msg: string) => void = () => {},
+): Promise<number> {
   let saved = 0;
 
   for (const groupUrl of groupUrls) {
-    const posts = await scrapeGroupPage(groupUrl, 50);
+    const posts = await scrapeGroupPage(groupUrl, 50, log);
+    log(`${posts.length} posts found, checking for rental listings…`);
 
     for (const post of posts) {
       const price = extractPrice(post.text);

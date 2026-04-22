@@ -52,28 +52,37 @@ async function fetchPageWithBrowser(page: number): Promise<Yad2Item[]> {
       userAgent:
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     });
+    // Visit the rent page first so anti-bot scripts run and cookies are set
     const pg = await ctx.newPage();
+    await pg.goto("https://www.yad2.co.il/realestate/rent", { waitUntil: "domcontentloaded", timeout: 30000 });
+    await pg.waitForTimeout(3000);
+    await pg.close();
 
-    // Visit homepage first to get cookies
-    await pg.goto("https://www.yad2.co.il/", { waitUntil: "domcontentloaded", timeout: 30000 });
-
-    // Now fetch the JSON API from within the browser context (has cookies + fingerprint)
+    // Use ctx.request (Playwright's own HTTP client) — uses the browser session's
+    // cookies but does NOT run through the page's JavaScript, so stormcaster.js
+    // cannot intercept or block the fetch.
     const apiUrl =
       `https://gw.yad2.co.il/feed-search-legacy/realestate/rent` +
       `?city=5000&propertyGroup=apartments&page=${page}&forceLdLoad=true`;
 
-    const result = await pg.evaluate(async (url: string) => {
-      const res = await fetch(url, {
-        headers: {
-          Accept: "application/json",
-          "Accept-Language": "he-IL,he;q=0.9",
-        },
-      });
-      return res.text();
-    }, apiUrl);
+    const res = await ctx.request.get(apiUrl, {
+      headers: {
+        Accept: "application/json",
+        "Accept-Language": "he-IL,he;q=0.9",
+        Referer: "https://www.yad2.co.il/realestate/rent",
+      },
+    });
 
-    const data = JSON.parse(result);
-    return data?.data?.feed?.feed_items ?? data?.feed?.feed_items ?? data?.feed_items ?? [];
+    const text = await res.text();
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Yad2 non-JSON response: ${text.slice(0, 300)}`);
+    }
+    return (data?.data as Record<string, unknown>)?.feed
+      ? ((data.data as Record<string, unknown>).feed as Record<string, unknown>)?.feed_items as Yad2Item[] ?? []
+      : (data?.feed as Record<string, unknown>)?.feed_items as Yad2Item[] ?? data?.feed_items as Yad2Item[] ?? [];
   } finally {
     await browser.close();
   }

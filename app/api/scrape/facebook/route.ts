@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
 
   addLog("facebook", `Scrape started for ${groupUrls.length} group(s) via browser`);
 
-  scrapeFacebook(groupUrls)
+  scrapeFacebook(groupUrls, (msg) => addLog("facebook", msg))
     .then((count) => { addLog("facebook", `Done — ${count} listings saved`); })
     .catch((err) => { addLog("facebook", `ERROR: ${err instanceof Error ? err.message : String(err)}`); });
 
