@@ -70,7 +70,7 @@ async function scrapeGroupPage(
   groupUrl: string,
   maxPosts = 50,
   log: (msg: string) => void = () => {},
-  credentials?: { email: string; password: string },
+  cookieStr?: string,
 ): Promise<ScrapedPost[]> {
   const { chromium } = await import("playwright");
 
@@ -86,35 +86,35 @@ async function scrapeGroupPage(
       locale: "he-IL",
       userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
     });
+
+    // Inject browser cookies before the first navigation so Facebook sees us as logged in
+    if (cookieStr) {
+      const cookies = cookieStr
+        .split(";")
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .map((p) => {
+          const eq = p.indexOf("=");
+          return { name: p.slice(0, eq).trim(), value: p.slice(eq + 1).trim(), domain: ".facebook.com", path: "/" };
+        })
+        .filter((c) => c.name && c.value);
+      await ctx.addCookies(cookies);
+      log(`Injected ${cookies.length} session cookies`);
+    }
+
     const page = await ctx.newPage();
     await page.goto(mbasicUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-    // Detect login / checkpoint redirect
     const redirectedUrl = page.url();
-    const needsLogin =
-      redirectedUrl.includes("/login") ||
-      redirectedUrl.includes("/checkpoint") ||
-      (await page.title()).toLowerCase().includes("log in");
-
-    if (needsLogin) {
-      if (!credentials?.email || !credentials?.password) {
-        throw new Error("Facebook requires login. Enter your Facebook credentials in the Admin panel.");
+    if (redirectedUrl.includes("/login") || redirectedUrl.includes("/checkpoint")) {
+      if (cookieStr) {
+        throw new Error("Cookies are expired or invalid — paste fresh ones from your browser.");
+      } else {
+        throw new Error("Facebook requires login. Paste your browser cookies in the Admin panel (no password needed).");
       }
-      log("Logging in to Facebook…");
-      await page.fill('input[name="email"]', credentials.email);
-      await page.fill('input[name="pass"]', credentials.password);
-      await page.click('input[type="submit"], button[name="login"]');
-      await page.waitForLoadState("domcontentloaded");
-
-      const afterUrl = page.url();
-      if (afterUrl.includes("/login") || afterUrl.includes("checkpoint") || afterUrl.includes("two_step")) {
-        throw new Error("Facebook login failed — check credentials or disable 2FA for this account.");
-      }
-      log("Logged in, navigating to group…");
-      await page.goto(mbasicUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
     }
 
-    log(`Page title: "${await page.title()}"`);
+    log(`Page: "${await page.title()}"`);
 
     let currentUrl = mbasicUrl;
     let pageNum = 0;
@@ -194,12 +194,12 @@ async function scrapeGroupPage(
 export async function scrapeFacebook(
   groupUrls: string[],
   log: (msg: string) => void = () => {},
-  credentials?: { email: string; password: string },
+  cookieStr?: string,
 ): Promise<number> {
   let saved = 0;
 
   for (const groupUrl of groupUrls) {
-    const posts = await scrapeGroupPage(groupUrl, 50, log, credentials);
+    const posts = await scrapeGroupPage(groupUrl, 50, log, cookieStr);
     log(`${posts.length} posts found, checking for rental listings…`);
 
     for (const post of posts) {
