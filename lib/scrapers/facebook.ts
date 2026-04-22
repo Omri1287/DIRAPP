@@ -70,6 +70,7 @@ async function scrapeGroupPage(
   groupUrl: string,
   maxPosts = 50,
   log: (msg: string) => void = () => {},
+  credentials?: { email: string; password: string },
 ): Promise<ScrapedPost[]> {
   const { chromium } = await import("playwright");
 
@@ -89,18 +90,31 @@ async function scrapeGroupPage(
     await page.goto(mbasicUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
 
     // Detect login / checkpoint redirect
-    const finalUrl = page.url();
-    const title = await page.title();
-    if (
-      finalUrl.includes("/login") ||
-      finalUrl.includes("/checkpoint") ||
-      title.toLowerCase().includes("log in") ||
-      title === "Facebook"
-    ) {
-      throw new Error(`Facebook requires login for this group (redirected to: ${finalUrl}). Only public groups work without login.`);
+    const redirectedUrl = page.url();
+    const needsLogin =
+      redirectedUrl.includes("/login") ||
+      redirectedUrl.includes("/checkpoint") ||
+      (await page.title()).toLowerCase().includes("log in");
+
+    if (needsLogin) {
+      if (!credentials?.email || !credentials?.password) {
+        throw new Error("Facebook requires login. Enter your Facebook credentials in the Admin panel.");
+      }
+      log("Logging in to Facebook…");
+      await page.fill('input[name="email"]', credentials.email);
+      await page.fill('input[name="pass"]', credentials.password);
+      await page.click('input[type="submit"], button[name="login"]');
+      await page.waitForLoadState("domcontentloaded");
+
+      const afterUrl = page.url();
+      if (afterUrl.includes("/login") || afterUrl.includes("checkpoint") || afterUrl.includes("two_step")) {
+        throw new Error("Facebook login failed — check credentials or disable 2FA for this account.");
+      }
+      log("Logged in, navigating to group…");
+      await page.goto(mbasicUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
     }
 
-    log(`Page title: "${title}"`);
+    log(`Page title: "${await page.title()}"`);
 
     let currentUrl = mbasicUrl;
     let pageNum = 0;
@@ -180,11 +194,12 @@ async function scrapeGroupPage(
 export async function scrapeFacebook(
   groupUrls: string[],
   log: (msg: string) => void = () => {},
+  credentials?: { email: string; password: string },
 ): Promise<number> {
   let saved = 0;
 
   for (const groupUrl of groupUrls) {
-    const posts = await scrapeGroupPage(groupUrl, 50, log);
+    const posts = await scrapeGroupPage(groupUrl, 50, log, credentials);
     log(`${posts.length} posts found, checking for rental listings…`);
 
     for (const post of posts) {

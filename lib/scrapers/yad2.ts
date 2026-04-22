@@ -52,37 +52,30 @@ async function fetchPageWithBrowser(page: number): Promise<Yad2Item[]> {
       userAgent:
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     });
-    // Visit the rent page first so anti-bot scripts run and cookies are set
     const pg = await ctx.newPage();
-    await pg.goto("https://www.yad2.co.il/realestate/rent", { waitUntil: "domcontentloaded", timeout: 30000 });
-    await pg.waitForTimeout(3000);
-    await pg.close();
+    const capturedItems: Yad2Item[] = [];
 
-    // Use ctx.request (Playwright's own HTTP client) — uses the browser session's
-    // cookies but does NOT run through the page's JavaScript, so stormcaster.js
-    // cannot intercept or block the fetch.
-    const apiUrl =
-      `https://gw.yad2.co.il/feed-search-legacy/realestate/rent` +
-      `?city=5000&propertyGroup=apartments&page=${page}&forceLdLoad=true`;
-
-    const res = await ctx.request.get(apiUrl, {
-      headers: {
-        Accept: "application/json",
-        "Accept-Language": "he-IL,he;q=0.9",
-        Referer: "https://www.yad2.co.il/realestate/rent",
-      },
+    // Intercept the API call Yad2's own JS makes — the request comes from the page's
+    // legitimate context so bot protection cannot block it
+    await pg.route("**/gw.yad2.co.il/feed-search-legacy/realestate/rent**", async (route) => {
+      const response = await route.fetch();
+      try {
+        const body = await response.text();
+        const data = JSON.parse(body) as Record<string, unknown>;
+        const inner = (data?.data ?? data) as Record<string, unknown>;
+        const feed = (inner?.feed ?? inner) as Record<string, unknown>;
+        const items = feed?.feed_items;
+        capturedItems.push(...(Array.isArray(items) ? items : []));
+      } catch { /* ignore */ }
+      await route.fulfill({ response });
     });
 
-    const text = await res.text();
-    let data: Record<string, unknown>;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error(`Yad2 non-JSON response: ${text.slice(0, 300)}`);
-    }
-    return (data?.data as Record<string, unknown>)?.feed
-      ? ((data.data as Record<string, unknown>).feed as Record<string, unknown>)?.feed_items as Yad2Item[] ?? []
-      : (data?.feed as Record<string, unknown>)?.feed_items as Yad2Item[] ?? data?.feed_items as Yad2Item[] ?? [];
+    await pg.goto(
+      `https://www.yad2.co.il/realestate/rent?city=5000&page=${page}`,
+      { waitUntil: "networkidle", timeout: 60000 },
+    );
+
+    return capturedItems;
   } finally {
     await browser.close();
   }

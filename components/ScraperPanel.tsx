@@ -18,6 +18,9 @@ interface LogEntry {
 export function ScraperPanel() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [fbPosts, setFbPosts] = useState("");
+  const [fbEmail, setFbEmail] = useState("");
+  const [fbPassword, setFbPassword] = useState("");
+  const [authSaved, setAuthSaved] = useState(false);
   const [yad2Status, setYad2Status] = useState<"idle" | "running" | "done" | "error">("idle");
   const [fbStatus, setFbStatus] = useState<"idle" | "running" | "done" | "error">("idle");
   const [yad2Msg, setYad2Msg] = useState("");
@@ -40,9 +43,24 @@ export function ScraperPanel() {
   useEffect(() => {
     loadStats();
     loadLogs();
+    fetch("/api/scrape/fb-auth").then((r) => r.json()).then((d) => {
+      if (d.email) setFbEmail(d.email);
+    });
     const interval = setInterval(() => { loadStats(); loadLogs(); }, 15000);
     return () => clearInterval(interval);
   }, [loadStats, loadLogs]);
+
+  const saveFbAuth = async () => {
+    if (!fbEmail || !fbPassword) return;
+    await fetch("/api/scrape/fb-auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: fbEmail, password: fbPassword }),
+    });
+    setFbPassword("");
+    setAuthSaved(true);
+    setTimeout(() => setAuthSaved(false), 3000);
+  };
 
   const saveConfig = async () => {
     const groupUrls = fbPosts
@@ -154,8 +172,38 @@ export function ScraperPanel() {
           <h3 className="font-semibold text-gray-900">Scrape Facebook groups</h3>
         </div>
         <p className="text-sm text-gray-500">
-          Paste public Facebook group URLs (one per line). Uses a real browser to scrape — works without login for public groups.
+          Paste Facebook group URLs (one per line). Facebook requires login even for public groups — enter your credentials below.
         </p>
+        <details className="text-sm border border-gray-200 rounded-xl p-4">
+          <summary className="cursor-pointer font-medium text-gray-700 hover:text-gray-900">
+            Facebook login credentials {authSaved && <span className="text-emerald-600 ml-2">✓ Saved</span>}
+          </summary>
+          <div className="flex flex-col gap-3 mt-3">
+            <p className="text-xs text-gray-400">Stored locally on your machine only. Use a test account if preferred.</p>
+            <div className="flex gap-3 flex-wrap">
+              <input
+                type="email"
+                value={fbEmail}
+                onChange={(e) => setFbEmail(e.target.value)}
+                placeholder="Facebook email"
+                className="flex-1 min-w-48 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <input
+                type="password"
+                value={fbPassword}
+                onChange={(e) => setFbPassword(e.target.value)}
+                placeholder="Password"
+                className="flex-1 min-w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <button
+                onClick={saveFbAuth}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 transition"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </details>
         <textarea
           value={fbPosts}
           onChange={(e) => setFbPosts(e.target.value)}
