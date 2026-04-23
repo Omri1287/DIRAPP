@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { TEL_AVIV_NEIGHBORHOODS } from "@/lib/geocode";
+import { apifyProxy } from "@/lib/proxy";
 
 const NEIGHBORHOODS_HE: Record<string, string> = {
   "פלורנטין": "Florentin",
@@ -78,7 +79,8 @@ async function scrapeGroupPage(
     .replace("www.facebook.com", "mbasic.facebook.com")
     .replace("m.facebook.com", "mbasic.facebook.com");
 
-  const browser = await chromium.launch({ headless: true });
+  const proxy = apifyProxy();
+  const browser = await chromium.launch({ headless: true, ...(proxy ? { proxy } : {}) });
   const posts: ScrapedPost[] = [];
 
   try {

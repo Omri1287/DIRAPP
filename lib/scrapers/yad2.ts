@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { TEL_AVIV_NEIGHBORHOODS } from "@/lib/geocode";
+import { apifyProxy } from "@/lib/proxy";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Yad2Item = Record<string, any>;
@@ -45,7 +46,8 @@ async function fetchPageWithBrowser(page: number): Promise<Yad2Item[]> {
   // Dynamic import so Playwright is only loaded when actually used
   const { chromium } = await import("playwright");
 
-  const browser = await chromium.launch({ headless: true });
+  const proxy = apifyProxy();
+  const browser = await chromium.launch({ headless: true, ...(proxy ? { proxy } : {}) });
   try {
     const ctx = await browser.newContext({
       locale: "he-IL",

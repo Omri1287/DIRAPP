@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { TEL_AVIV_NEIGHBORHOODS } from "@/lib/geocode";
+import { apifyProxy } from "@/lib/proxy";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>;
@@ -141,7 +142,8 @@ export async function scrapeMadlan(
   log: (msg: string) => void = () => {},
 ): Promise<number> {
   const { chromium } = await import("playwright");
-  const browser = await chromium.launch({ headless: true });
+  const proxy = apifyProxy();
+  const browser = await chromium.launch({ headless: true, ...(proxy ? { proxy } : {}) });
   let saved = 0;
 
   try {
